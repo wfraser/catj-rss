@@ -15,18 +15,46 @@ echo '{"hello": "world"}' | catj
 ## Example
 Input:
 ```json
-{"todo": "fill this in"}
+{
+  "mappings": {
+    "templates": [
+      {
+        "fields": {
+          "mapping": {
+            "norms": false,
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "ignore_above": 256,
+                "type": "keyword"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
 ```
 
 Output:
 ```txt
-.todo = "fill this in"
+.mappings.templates[0].fields.mapping.norms = false
+.mappings.templates[0].fields.mapping.type = "text"
+.mappings.templates[0].fields.mapping.fields.keyword.ignore_above = 256
+.mappings.templates[0].fields.mapping.fields.keyword.type = "keyword"
 ```
 
 ## Why?
 * It makes it easier to understand the structure of JSON files.
 * The output is valid JavaScript which can be used directly in code.
 * It's very helpful when writing queries for tools like [jq](https://stedolan.github.io/jq/manual/).
+
+## Install
+Building this program requires a Rust toolchain, 2018 edition or later.
+```sh
+cargo install --path .
+```
 
 ## About
 This program is a reimplementation of [Soheil
