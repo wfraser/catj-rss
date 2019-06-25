@@ -89,9 +89,10 @@ fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
     Ok(())
 }
 
-fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
-            ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut String)
-        -> Result<u8, JsonError> {
+fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Value>,
+            ss: &mut Vec<u8>, es: &mut String)
+    -> Result<u8, JsonError>
+{
     loop {
         let mut code: u16 = STATES[state as usize][cat as usize];
         let mut action: u8 = (code >> 8 & 0xFF) as u8;
@@ -117,15 +118,16 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
     }
 }
 
-fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
-             es: &mut String) -> Result<(), JsonError> {
+fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut String)
+    -> Result<(), JsonError>
+{
     match action {
         0x1 => { // push list
             ds.push(Value::List { index: 0 });
-        },
+        }
         0x2 => { // push object
             ds.push(Value::Object);
-        },
+        }
         0x3 => { // pop & append
             let v = ds.pop().unwrap();
             if let Value::Terminal(v) = v {
@@ -138,7 +140,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
                 }
                 other => panic!("expected list on top of the stack, not {:?}", other)
             }
-        },
+        }
         0x4 => { // pop pop & setitem
             let v = ds.pop().unwrap();
             let k = ds.pop().unwrap();
@@ -150,23 +152,23 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
                 }
                 println!(" = {}", v);
             }
-        },
+        }
         0x5 => { // push null
             ds.push(Terminal::Null.into());
-        },
+        }
         0x6 => { // push true
             ds.push(Terminal::Bool(true).into());
-        },
+        }
         0x7 => { // push false
             ds.push(Terminal::Bool(false).into());
-        },
+        }
         0x8 => { // push string
             let s = String::from_utf8(ss.clone())
                 .map_err(|e| JsonError::Unicode(e.utf8_error()))?;
             ds.push(Terminal::String(s).into());
             ss.clear();
             es.clear();
-        },
+        }
         0x9 => { // push int
             ds.push(
                 Terminal::Int(
@@ -176,7 +178,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
                         .map_err(JsonError::IntParse)?
                 ).into());
             ss.clear();
-        },
+        }
         0xA => { // push float
             ds.push(
                 Terminal::Float(
@@ -186,10 +188,10 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
                         .map_err(JsonError::FloatParse)?
                 ).into());
             ss.clear();
-        },
+        }
         0xB => { // push ch to ss
             ss.push(ch);
-        },
+        }
         0xC => { // push ch to es
             es.push(ch as char);
         }
@@ -204,7 +206,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
             };
             ss.push(c);
             es.clear();
-        },
+        }
         0xE => { // push unicode code point
             let n = u16::from_str_radix(es, 16).map_err(|_|
                     JsonError::InvalidEscape(format!("\\u{}", es)))?;
@@ -217,7 +219,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
                 return Err(JsonError::InvalidEscape(format!("\\u{}", es)));
             }
             es.clear();
-        },
+        }
         _ => panic!("JSON algorithm bug"),
     }
     Ok(())
