@@ -203,6 +203,21 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
 }
 
 fn main() {
+    if let Some(arg) = std::env::args().nth(1) {
+        if arg == "--version" || arg == "-V" {
+            eprintln!("catj-rss v{}", env!("CARGO_PKG_VERSION"));
+            eprintln!("Copyright 2019 William R. Fraser");
+            eprintln!("https://github.com/wfraser/catj-rss");
+            exit(1);
+        } else {
+            eprintln!("usage: {} [-V | --version] < some_file.json", std::env::args().next().unwrap());
+            eprintln!("Displays JSON files in a flat format.");
+            eprintln!("Reads from standard input, writes to standard output.");
+            eprintln!("see https://github.com/wfraser/catj-rss");
+            exit(1);
+        }
+    }
+
     if let Err((line, col, e)) = parse(io::stdin().lock()) {
         eprint!("Error in input at line {} column {}: ", line, col);
         match e {
