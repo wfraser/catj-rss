@@ -10,6 +10,7 @@ use std::cmp::min;
 use std::io::{self, Read};
 use std::num::{ParseFloatError, ParseIntError};
 use std::process::exit;
+use std::str::{self, Utf8Error};
 
 mod tables;
 use tables::{STATES, GOTOS, CATCODE};
@@ -21,6 +22,7 @@ enum JsonError {
     IntParse(ParseIntError),
     FloatParse(ParseFloatError),
     InvalidEscape(String),
+    Unicode(Utf8Error),
     IO(io::Error),
 }
 
@@ -63,7 +65,7 @@ fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
     let mut stack = vec![];
     let mut state = 0;
     let mut ds: Vec<Value> = vec![];    // data stack
-    let mut ss = String::new();         // string stack
+    let mut ss: Vec<u8> = vec![];       // string stack
     let mut es = String::new();         // escape stack
     let mut line = 1;
     let mut col = 0;
@@ -88,7 +90,7 @@ fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
 }
 
 fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
-            ds: &mut Vec<Value>, ss: &mut String, es: &mut String)
+            ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut String)
         -> Result<u8, JsonError> {
     loop {
         let mut code: u16 = STATES[state as usize][cat as usize];
@@ -115,7 +117,7 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
     }
 }
 
-fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
+fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>,
              es: &mut String) -> Result<(), JsonError> {
     match action {
         0x1 => { // push list
@@ -159,47 +161,58 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
             ds.push(Terminal::Bool(false).into());
         },
         0x8 => { // push string
-            ds.push(Terminal::String(ss.clone()).into());
+            let s = String::from_utf8(ss.clone())
+                .map_err(|e| JsonError::Unicode(e.utf8_error()))?;
+            ds.push(Terminal::String(s).into());
             ss.clear();
             es.clear();
         },
         0x9 => { // push int
             ds.push(
                 Terminal::Int(
-                    ss.parse().map_err(JsonError::IntParse)?
+                    str::from_utf8(&ss)
+                        .map_err(JsonError::Unicode)?
+                        .parse()
+                        .map_err(JsonError::IntParse)?
                 ).into());
             ss.clear();
         },
         0xA => { // push float
             ds.push(
                 Terminal::Float(
-                    ss.parse().map_err(JsonError::FloatParse)?
+                    str::from_utf8(&ss)
+                        .map_err(JsonError::Unicode)?
+                        .parse()
+                        .map_err(JsonError::FloatParse)?
                 ).into());
             ss.clear();
         },
         0xB => { // push ch to ss
-            ss.push(ch as char);
+            ss.push(ch);
         },
         0xC => { // push ch to es
             es.push(ch as char);
         }
         0xD => { // push escape
-            let c: u8 = match ch as char {
-                'b' => 8,
-                't' => 9,
-                'n' => 10,
-                'f' => 12,
-                'r' => 13,
-                _ => { return Err(JsonError::InvalidEscape(format!("\\{}", ch))); },
+            let c: u8 = match ch {
+                b'b' => 8,
+                b't' => b'\t', //9,
+                b'n' => b'\n', //10,
+                b'f' => 12,
+                b'r' => b'\r', //13,
+                _ => { return Err(JsonError::InvalidEscape(format!("\\{}", ch as char))); },
             };
-            ss.push(c as char);
+            ss.push(c);
             es.clear();
         },
         0xE => { // push unicode code point
             let n = u16::from_str_radix(es, 16).map_err(|_|
                     JsonError::InvalidEscape(format!("\\u{}", es)))?;
             if let Some(u) = char::from_u32(u32::from(n)) {
-                ss.push(u);
+                // push the UTF-8 bytes of it to the string buffer
+                let mut buf = [0u8; 4];
+                u.encode_utf8(&mut buf);
+                ss.extend(&buf[0 .. u.len_utf8()]);
             } else {
                 return Err(JsonError::InvalidEscape(format!("\\u{}", es)));
             }
@@ -245,6 +258,7 @@ fn main() {
             JsonError::IntParse(e) => eprintln!("invalid integer: {}", e),
             JsonError::FloatParse(e) => eprintln!("invalid floating-point number: {}", e),
             JsonError::InvalidEscape(e) => eprintln!("invalid string escape sequence: {}", e),
+            JsonError::Unicode(e) => eprintln!("invalid UTF-8: {}", e),
             JsonError::IO(e) => eprintln!("I/O error: {}", e),
         }
         exit(2);
