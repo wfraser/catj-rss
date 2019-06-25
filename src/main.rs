@@ -15,7 +15,7 @@ mod tables;
 use tables::{STATES, GOTOS, CATCODE};
 
 #[derive(Debug)]
-pub enum JsonError {
+enum JsonError {
     Truncated,
     Syntax,
     IntParse(ParseIntError),
@@ -25,26 +25,41 @@ pub enum JsonError {
 }
 
 #[derive(Debug)]
-pub enum Value {
+enum Value {
+    Object,
+    List { index: u64 }, // just the current size of the list as we parse the JSON
+    Terminal(Terminal),
+}
+
+/// Things we print a line for.
+#[derive(Debug)]
+enum Terminal {
     Null,
     Bool(bool),
     Int(i64),
     Float(f64),
     String(String),
-    List(u64),
-    Object,
 }
 
-impl Value {
-    fn as_list(&mut self) -> &mut u64 {
+impl std::fmt::Display for Terminal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::List(ref mut l) => l,
-            _ => panic!("wrong type - expected List, got {:?}", self),
+            Terminal::Null => f.write_str("null"),
+            Terminal::Bool(v) => write!(f, "{:?}", v),
+            Terminal::Int(v) => write!(f, "{}", v),
+            Terminal::Float(v) => write!(f, "{}", v),
+            Terminal::String(s) => write!(f, "{:?}", s),
         }
     }
 }
 
-pub fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
+impl Into<Value> for Terminal {
+    fn into(self) -> Value {
+        Value::Terminal(self)
+    }
+}
+
+fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
     let mut stack = vec![];
     let mut state = 0;
     let mut ds: Vec<Value> = vec![];    // data stack
@@ -104,69 +119,62 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
              es: &mut String) -> Result<(), JsonError> {
     match action {
         0x1 => { // push list
-            ds.push(Value::List(0));
+            ds.push(Value::List { index: 0 });
         },
         0x2 => { // push object
             ds.push(Value::Object);
         },
         0x3 => { // pop & append
-            ds.pop().unwrap();
-            // we don't actually store the value, but increment the index of the list
-            *ds.last_mut().unwrap().as_list() += 1;
+            let v = ds.pop().unwrap();
+            if let Value::Terminal(v) = v {
+                print_path(ds);
+                println!(" = {}", v);
+            }
+            match ds.last_mut() {
+                Some(Value::List { index }) => {
+                    *index += 1;
+                }
+                other => panic!("expected list on top of the stack, not {:?}", other)
+            }
         },
         0x4 => { // pop pop & setitem
             let v = ds.pop().unwrap();
             let k = ds.pop().unwrap();
-            match v {
-                Value::List(_) | Value::Object => {
-                    // Don't print complex values; the terminals below them should already have
-                    // been printed.
+            if let Value::Terminal(v) = v {
+                print_path(&*ds);
+                match k {
+                    Value::Terminal(Terminal::String(s)) => print!("{}", s),
+                    _ => panic!("object field must be a string, not {:?}", k),
                 }
-                _ => {
-                    for item in &*ds {
-                        match item {
-                            Value::Object => print!("."),
-                            Value::String(s) => print!("{}", s),
-                            Value::List(n) => print!("[{}]", n),
-                            _ => panic!("invalid item in a path: {:?}", item),
-                        }
-                    }
-                    match k {
-                        Value::String(s) => print!("{}", s),
-                        _ => panic!("object field must be string, not {:?}", k),
-                    }
-                    print!(" = ");
-                    match v {
-                        Value::Null => println!("null"),
-                        Value::Bool(v) => println!("{:?}", v),
-                        Value::Int(v) => println!("{}", v),
-                        Value::Float(v) => println!("{}", v),
-                        Value::String(s) => println!("{:?}", s),
-                        _ => panic!("can't have complex thing as a value: {:?}", v),
-                    }
-                }
+                println!(" = {}", v);
             }
         },
         0x5 => { // push null
-            ds.push(Value::Null);
+            ds.push(Terminal::Null.into());
         },
         0x6 => { // push true
-            ds.push(Value::Bool(true));
+            ds.push(Terminal::Bool(true).into());
         },
         0x7 => { // push false
-            ds.push(Value::Bool(false));
+            ds.push(Terminal::Bool(false).into());
         },
         0x8 => { // push string
-            ds.push(Value::String(ss.clone()));
+            ds.push(Terminal::String(ss.clone()).into());
             ss.clear();
             es.clear();
         },
         0x9 => { // push int
-            ds.push(Value::Int(ss.parse().map_err(JsonError::IntParse)?));
+            ds.push(
+                Terminal::Int(
+                    ss.parse().map_err(JsonError::IntParse)?
+                ).into());
             ss.clear();
         },
         0xA => { // push float
-            ds.push(Value::Float(ss.parse().map_err(JsonError::FloatParse)?));
+            ds.push(
+                Terminal::Float(
+                    ss.parse().map_err(JsonError::FloatParse)?
+                ).into());
             ss.clear();
         },
         0xB => { // push ch to ss
@@ -200,6 +208,17 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
         _ => panic!("JSON algorithm bug"),
     }
     Ok(())
+}
+
+fn print_path(ds: &[Value]) {
+    for item in ds {
+        match item {
+            Value::Object => print!("."),
+            Value::List { index } => print!("[{}]", index),
+            Value::Terminal(Terminal::String(s)) => print!("{}", s),
+            Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
+        }
+    }
 }
 
 fn main() {
