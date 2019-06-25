@@ -203,7 +203,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
 }
 
 fn main() {
-    if let Err((line, col, e)) = parse(io::stdin()) {
+    if let Err((line, col, e)) = parse(io::stdin().lock()) {
         eprint!("Error in input at line {} column {}: ", line, col);
         match e {
             JsonError::Truncated => eprintln!("JSON truncated"),
