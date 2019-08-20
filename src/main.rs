@@ -8,7 +8,6 @@
 use std::char;
 use std::cmp::min;
 use std::io::{self, Read};
-use std::num::{ParseFloatError, ParseIntError};
 use std::process::exit;
 use std::str::{self, Utf8Error};
 
@@ -19,8 +18,6 @@ use tables::{STATES, GOTOS, CATCODE};
 enum JsonError {
     Truncated,
     Syntax,
-    IntParse(ParseIntError),
-    FloatParse(ParseFloatError),
     InvalidEscape(String),
     Unicode(Utf8Error),
     IO(io::Error),
@@ -38,8 +35,7 @@ enum Value {
 enum Terminal {
     Null,
     Bool(bool),
-    Int(i64),
-    Float(f64),
+    Number(String),
     String(String),
 }
 
@@ -48,8 +44,7 @@ impl std::fmt::Display for Terminal {
         match self {
             Terminal::Null => f.write_str("null"),
             Terminal::Bool(v) => write!(f, "{:?}", v),
-            Terminal::Int(v) => write!(f, "{}", v),
-            Terminal::Float(v) => write!(f, "{}", v),
+            Terminal::Number(s) => f.write_str(&s),
             Terminal::String(s) => write!(f, "{:?}", s),
         }
     }
@@ -169,23 +164,12 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             ss.clear();
             es.clear();
         }
-        0x9 => { // push int
+        0x9 | 0xA => { // push int, push float
             ds.push(
-                Terminal::Int(
+                Terminal::Number(
                     str::from_utf8(&ss)
                         .map_err(JsonError::Unicode)?
-                        .parse()
-                        .map_err(JsonError::IntParse)?
-                ).into());
-            ss.clear();
-        }
-        0xA => { // push float
-            ds.push(
-                Terminal::Float(
-                    str::from_utf8(&ss)
-                        .map_err(JsonError::Unicode)?
-                        .parse()
-                        .map_err(JsonError::FloatParse)?
+                        .to_owned()
                 ).into());
             ss.clear();
         }
@@ -257,8 +241,6 @@ fn main() {
         match e {
             JsonError::Truncated => eprintln!("JSON truncated"),
             JsonError::Syntax => eprintln!("invalid JSON syntax"),
-            JsonError::IntParse(e) => eprintln!("invalid integer: {}", e),
-            JsonError::FloatParse(e) => eprintln!("invalid floating-point number: {}", e),
             JsonError::InvalidEscape(e) => eprintln!("invalid string escape sequence: {}", e),
             JsonError::Unicode(e) => eprintln!("invalid UTF-8: {}", e),
             JsonError::IO(e) => eprintln!("I/O error: {}", e),
