@@ -1,9 +1,12 @@
-// catj, rust streaming parser edition
-// Displays JSON files in a flat format.
-// https://github.com/wfraser/catj-rss
-// Copyright 2019 William R. Fraser
-
 #![deny(rust_2018_idioms)]
+
+/// catj, rust streaming parser edition
+///
+/// Displays JSON files in a flat format.
+///
+/// https://github.com/wfraser/catj-rss
+///
+/// Copyright 2019-2021 William R. Fraser
 
 use std::char;
 use std::cmp::min;
