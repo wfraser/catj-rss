@@ -100,6 +100,12 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Va
             action -= 0x80;
         }
 
+        if state == 0 && !ds.is_empty() {
+            // New top-level value.
+            println!();
+            ds.pop();
+        }
+
         if action > 0 {
             do_action(action, ch, ds, ss, es)?;
         }
