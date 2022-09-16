@@ -47,15 +47,15 @@ impl std::fmt::Display for Terminal {
         match self {
             Terminal::Null => f.write_str("null"),
             Terminal::Bool(v) => write!(f, "{:?}", v),
-            Terminal::Number(s) => f.write_str(&s),
+            Terminal::Number(s) => f.write_str(s),
             Terminal::String(s) => write!(f, "{:?}", s),
         }
     }
 }
 
-impl Into<Value> for Terminal {
-    fn into(self) -> Value {
-        Value::Terminal(self)
+impl From<Terminal> for Value {
+    fn from(t: Terminal) -> Self {
+        Value::Terminal(t)
     }
 }
 
@@ -176,7 +176,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
         0x9 | 0xA => { // push int, push float
             ds.push(
                 Terminal::Number(
-                    str::from_utf8(&ss)
+                    str::from_utf8(ss)
                         .map_err(JsonError::Unicode)?
                         .to_owned()
                 ).into());
@@ -233,16 +233,15 @@ fn main() {
     if let Some(arg) = std::env::args().nth(1) {
         if arg == "--version" || arg == "-V" {
             eprintln!("catj-rss v{}", env!("CARGO_PKG_VERSION"));
-            eprintln!("Copyright 2019 William R. Fraser");
+            eprintln!("Copyright 2019-2021 William R. Fraser");
             eprintln!("https://github.com/wfraser/catj-rss");
-            exit(1);
         } else {
             eprintln!("usage: {} [-V | --version] < some_file.json", std::env::args().next().unwrap());
             eprintln!("Displays JSON files in a flat format.");
             eprintln!("Reads from standard input, writes to standard output.");
             eprintln!("see https://github.com/wfraser/catj-rss");
-            exit(1);
         }
+        exit(1);
     }
 
     if let Err((line, col, e)) = parse(io::stdin().lock()) {
