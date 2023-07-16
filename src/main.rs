@@ -10,7 +10,7 @@
 
 use std::char;
 use std::cmp::min;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::process::exit;
 use std::str::{self, Utf8Error};
 
@@ -24,6 +24,12 @@ enum JsonError {
     InvalidEscape(String),
     Unicode(Utf8Error),
     IO(io::Error),
+}
+
+impl From<io::Error> for JsonError {
+    fn from(e: io::Error) -> Self {
+        JsonError::IO(e)
+    }
 }
 
 #[derive(Debug)]
@@ -48,7 +54,30 @@ impl std::fmt::Display for Terminal {
             Terminal::Null => f.write_str("null"),
             Terminal::Bool(v) => write!(f, "{:?}", v),
             Terminal::Number(s) => f.write_str(s),
-            Terminal::String(s) => write!(f, "{:?}", s),
+            Terminal::String(s) => {
+                f.write_str("\"")?;
+                let mut tmp = [0u8; 4];
+                for c in s.chars() {
+                    match c {
+                        '"' => f.write_str("\\\"")?,
+                        '\\' => f.write_str("\\\\")?,
+                        '\x08' => f.write_str("\\b")?,
+                        '\t' => f.write_str("\\t")?,
+                        '\x0C' => f.write_str("\\f")?,
+                        '\n' => f.write_str("\\n")?,
+                        '\r' => f.write_str("\\r")?,
+                        c if (c as u32) < 0x20 => write!(f, "\\u{:04x}", c as u32)?,
+                        // to emit astral plane characters as escaped surrogate pairs:
+                        /*c if (c as u32) > 0xFFFF => {
+                            let mut pair = [0u16; 2];
+                            c.encode_utf16(&mut pair);
+                            write!(f, "\\u{:04x}\\u{:04x}", pair[0], pair[1])?;
+                        }*/
+                        c => f.write_str(c.encode_utf8(&mut tmp))?,
+                    }
+                }
+                f.write_str("\"")
+            }
         }
     }
 }
@@ -59,7 +88,7 @@ impl From<Terminal> for Value {
     }
 }
 
-fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
+fn parse(input: impl Read, mut output: impl Write) -> Result<(), (u64, u64, JsonError)> {
     let mut stack = vec![];
     let mut state = 0;
     let mut ds: Vec<Value> = vec![];    // data stack
@@ -76,10 +105,10 @@ fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
             col += 1;
         }
         let cat = CATCODE[min(ch, 0x7e) as usize];
-        state = parse_ch(cat, ch, &mut stack, state, &mut ds, &mut ss, &mut es)
+        state = parse_ch(cat, ch, &mut stack, state, &mut ds, &mut ss, &mut es, &mut output)
             .map_err(|e| (line, col, e))?;
     }
-    state = parse_ch(CATCODE[32], b'?', &mut stack, state, &mut ds, &mut ss, &mut es)
+    state = parse_ch(CATCODE[32], b'?', &mut stack, state, &mut ds, &mut ss, &mut es, &mut output)
         .map_err(|e| (line, col, e))?;
     if state != 0 {
         return Err((line, col, JsonError::Truncated));
@@ -88,7 +117,7 @@ fn parse(input: impl Read) -> Result<(), (u64, u64, JsonError)> {
 }
 
 fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Value>,
-            ss: &mut Vec<u8>, es: &mut String)
+            ss: &mut Vec<u8>, es: &mut String, mut output: impl Write)
     -> Result<u8, JsonError>
 {
     loop {
@@ -105,12 +134,12 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Va
 
         if state == 0 && !ds.is_empty() {
             // New top-level value.
-            println!();
+            output.write_all(b"\n")?;
             ds.pop();
         }
 
         if action > 0 {
-            do_action(action, ch, ds, ss, es)?;
+            do_action(action, ch, ds, ss, es, &mut output)?;
         }
 
         if code == 0xFF {
@@ -122,7 +151,8 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Va
     }
 }
 
-fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut String)
+fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut String,
+             mut output: impl Write)
     -> Result<(), JsonError>
 {
     match action {
@@ -135,8 +165,8 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
         0x3 => { // pop & append
             let v = ds.pop().unwrap();
             if let Value::Terminal(v) = v {
-                print_path(ds);
-                println!(" = {}", v);
+                print_path(ds, &mut output)?;
+                writeln!(&mut output, " = {}", v)?;
             }
             match ds.last_mut() {
                 Some(Value::List { index }) => {
@@ -149,12 +179,12 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             let v = ds.pop().unwrap();
             let k = ds.pop().unwrap();
             if let Value::Terminal(v) = v {
-                print_path(&*ds);
+                print_path(&*ds, &mut output)?;
                 match k {
-                    Value::Terminal(Terminal::String(s)) => print!("{}", s),
+                    Value::Terminal(Terminal::String(s)) => write!(&mut output, "{}", s)?,
                     _ => panic!("object field must be a string, not {:?}", k),
                 }
-                println!(" = {}", v);
+                writeln!(&mut output, " = {}", v)?;
             }
         }
         0x5 => { // push null
@@ -184,8 +214,17 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
         }
         0xB => { // push ch to ss
             ss.push(ch);
+            if !es.is_empty() {
+                let bad = std::mem::take(es);
+                return Err(JsonError::InvalidEscape(bad));
+            }
+            es.clear();
         }
         0xC => { // push ch to es
+            if !ch.is_ascii_hexdigit() {
+                return Err(JsonError::InvalidEscape(
+                        format!("{:?} is not a hex digit", ch as char)));
+            }
             es.push(ch as char);
         }
         0xD => { // push escape
@@ -201,15 +240,57 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             es.clear();
         }
         0xE => { // push unicode code point
-            let n = u16::from_str_radix(es, 16).map_err(|_|
-                    JsonError::InvalidEscape(format!("\\u{}", es)))?;
-            if let Some(u) = char::from_u32(u32::from(n)) {
+            let codepoint = match es.len() {
+                8 => {
+                    let high_str = es.get(0..4)
+                        .ok_or_else(|| JsonError::InvalidEscape(
+                                format!("\\u{}", es)))?;
+                    let high = u16::from_str_radix(high_str, 16)
+                        .map_err(|e| JsonError::InvalidEscape(
+                                format!("\\u{}: {}", high_str, e)))?;
+                    if !(0xD800 ..= 0xDBFF).contains(&high) {
+                        return Err(JsonError::InvalidEscape(
+                                format!("\\u{}: unpaired high surrogate", high_str)));
+                    }
+
+                    let low_str = es.get(4..8)
+                        .ok_or_else(|| JsonError::InvalidEscape(
+                                format!("\\u{}", es)))?;
+                    let low = u16::from_str_radix(low_str, 16)
+                        .map_err(|e| JsonError::InvalidEscape(
+                                format!("\\u{}: {}", low_str, e)))?;
+                    if !(0xDC00 ..= 0xDFFF).contains(&low) {
+                        return Err(JsonError::InvalidEscape(
+                                format!("\\u{}: unpaired low surrogate", low_str)));
+                    }
+
+                    0x1_0000
+                        + (high as u32 - 0xD800) * 0x400
+                        + (low as u32 - 0xDC00)
+                }
+                4 => {
+                    let two_bytes = u16::from_str_radix(es, 16)
+                        .map_err(|e| JsonError::InvalidEscape(format!("\\u{}: {}", es, e)))?;
+                    if (0xD800..0xDBFF).contains(&two_bytes) {
+                        // We need to read another surrogate pair to do anything. Keep the 'es'
+                        // buffer unchanged, and let more characters accumulate in it.
+                        return Ok(());
+                    }
+                    u32::from(two_bytes)
+                }
+                _ => {
+                    return Err(JsonError::InvalidEscape(
+                            format!("\\u{}: wrong number of digits", es)));
+                }
+            };
+
+            if let Some(u) = char::from_u32(codepoint) {
                 // push the UTF-8 bytes of it to the string buffer
                 let mut buf = [0u8; 4];
                 u.encode_utf8(&mut buf);
                 ss.extend(&buf[0 .. u.len_utf8()]);
             } else {
-                return Err(JsonError::InvalidEscape(format!("\\u{}", es)));
+                return Err(JsonError::InvalidEscape(format!("\\u{} ?", es)));
             }
             es.clear();
         }
@@ -218,15 +299,16 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
     Ok(())
 }
 
-fn print_path(ds: &[Value]) {
+fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
     for item in ds {
         match item {
-            Value::Object => print!("."),
-            Value::List { index } => print!("[{}]", index),
-            Value::Terminal(Terminal::String(s)) => print!("{}", s),
+            Value::Object => output.write_all(b".")?,
+            Value::List { index } => write!(output, "[{}]", index)?,
+            Value::Terminal(Terminal::String(s)) => write!(output, "{}", s)?,
             Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
         }
     }
+    Ok(())
 }
 
 fn main() {
@@ -244,7 +326,7 @@ fn main() {
         exit(1);
     }
 
-    if let Err((line, col, e)) = parse(io::stdin().lock()) {
+    if let Err((line, col, e)) = parse(io::stdin().lock(), io::stdout().lock()) {
         eprint!("Error in input at line {} column {}: ", line, col);
         match e {
             JsonError::Truncated => eprintln!("JSON truncated"),
