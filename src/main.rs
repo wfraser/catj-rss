@@ -52,7 +52,7 @@ impl std::fmt::Display for Terminal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Terminal::Null => f.write_str("null"),
-            Terminal::Bool(v) => write!(f, "{:?}", v),
+            Terminal::Bool(v) => write!(f, "{v:?}"),
             Terminal::Number(s) => f.write_str(s),
             Terminal::String(s) => {
                 f.write_str("\"")?;
@@ -116,6 +116,7 @@ fn parse(input: impl Read, mut output: impl Write) -> Result<(), (u64, u64, Json
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8, ds: &mut Vec<Value>,
             ss: &mut Vec<u8>, es: &mut String, mut output: impl Write)
     -> Result<u8, JsonError>
@@ -166,7 +167,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             let v = ds.pop().unwrap();
             if let Value::Terminal(v) = v {
                 print_path(ds, &mut output)?;
-                writeln!(&mut output, " = {}", v)?;
+                writeln!(&mut output, " = {v}")?;
             }
             match ds.last_mut() {
                 Some(Value::List { index }) => {
@@ -182,7 +183,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             let print_lhs = || -> io::Result<()> {
                 print_path(&*ds, &mut output)?;
                 if let Value::Terminal(Terminal::String(s)) = k {
-                    write!(&mut output, "{} = ", s)?;
+                    write!(&mut output, "{s} = ")?;
                 } else {
                     panic!("object field must be a string, not {:?}", k);
                 }
@@ -191,7 +192,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             match v {
                 Value::Terminal(v) => {
                     print_lhs()?;
-                    writeln!(&mut output, "{}", v)?;
+                    writeln!(&mut output, "{v}")?;
                 }
                 Value::List { index: 0 } => {
                     print_lhs()?;
@@ -268,24 +269,24 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
                 8 => {
                     let high_str = es.get(0..4)
                         .ok_or_else(|| JsonError::InvalidEscape(
-                                format!("\\u{}", es)))?;
+                                format!("\\u{es}")))?;
                     let high = u16::from_str_radix(high_str, 16)
                         .map_err(|e| JsonError::InvalidEscape(
-                                format!("\\u{}: {}", high_str, e)))?;
+                                format!("\\u{high_str}: {e}")))?;
                     if !(0xD800 ..= 0xDBFF).contains(&high) {
                         return Err(JsonError::InvalidEscape(
-                                format!("\\u{}: unpaired high surrogate", high_str)));
+                                format!("\\u{high_str}: unpaired high surrogate")));
                     }
 
                     let low_str = es.get(4..8)
                         .ok_or_else(|| JsonError::InvalidEscape(
-                                format!("\\u{}", es)))?;
+                                format!("\\u{es}")))?;
                     let low = u16::from_str_radix(low_str, 16)
                         .map_err(|e| JsonError::InvalidEscape(
-                                format!("\\u{}: {}", low_str, e)))?;
+                                format!("\\u{low_str}: {e}")))?;
                     if !(0xDC00 ..= 0xDFFF).contains(&low) {
                         return Err(JsonError::InvalidEscape(
-                                format!("\\u{}: unpaired low surrogate", low_str)));
+                                format!("\\u{low_str}: unpaired low surrogate")));
                     }
 
                     0x1_0000
@@ -294,7 +295,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
                 }
                 4 => {
                     let two_bytes = u16::from_str_radix(es, 16)
-                        .map_err(|e| JsonError::InvalidEscape(format!("\\u{}: {}", es, e)))?;
+                        .map_err(|e| JsonError::InvalidEscape(format!("\\u{es}: {e}")))?;
                     if (0xD800..0xDBFF).contains(&two_bytes) {
                         // We need to read another surrogate pair to do anything. Keep the 'es'
                         // buffer unchanged, and let more characters accumulate in it.
@@ -304,7 +305,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
                 }
                 _ => {
                     return Err(JsonError::InvalidEscape(
-                            format!("\\u{}: wrong number of digits", es)));
+                            format!("\\u{es}: wrong number of digits")));
                 }
             };
 
@@ -314,7 +315,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
                 u.encode_utf8(&mut buf);
                 ss.extend(&buf[0 .. u.len_utf8()]);
             } else {
-                return Err(JsonError::InvalidEscape(format!("\\u{} ?", es)));
+                return Err(JsonError::InvalidEscape(format!("\\u{es} ?")));
             }
             es.clear();
         }
@@ -327,8 +328,8 @@ fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
     for item in ds {
         match item {
             Value::Object { .. } => output.write_all(b".")?,
-            Value::List { index } => write!(output, "[{}]", index)?,
-            Value::Terminal(Terminal::String(s)) => write!(output, "{}", s)?,
+            Value::List { index } => write!(output, "[{index}]")?,
+            Value::Terminal(Terminal::String(s)) => write!(output, "{s}")?,
             Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
         }
     }
@@ -351,13 +352,13 @@ fn main() {
     }
 
     if let Err((line, col, e)) = parse(io::stdin().lock(), io::stdout().lock()) {
-        eprint!("Error in input at line {} column {}: ", line, col);
+        eprint!("Error in input at line {line} column {col}: ");
         match e {
             JsonError::Truncated => eprintln!("JSON truncated"),
             JsonError::Syntax => eprintln!("invalid JSON syntax"),
-            JsonError::InvalidEscape(e) => eprintln!("invalid string escape sequence: {}", e),
-            JsonError::Unicode(e) => eprintln!("invalid UTF-8: {}", e),
-            JsonError::IO(e) => eprintln!("I/O error: {}", e),
+            JsonError::InvalidEscape(e) => eprintln!("invalid string escape sequence: {e}"),
+            JsonError::Unicode(e) => eprintln!("invalid UTF-8: {e}"),
+            JsonError::IO(e) => eprintln!("I/O error: {e}"),
         }
         exit(2);
     }
