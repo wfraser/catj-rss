@@ -34,8 +34,8 @@ impl From<io::Error> for JsonError {
 
 #[derive(Debug)]
 enum Value {
-    Object,
-    List { index: u64 }, // just the current size of the list as we parse the JSON
+    Object { empty: bool }, // empty: whether we've seen any fields yet while parsing
+    List { index: u64 }, // index: the current size of the list while parsing
     Terminal(Terminal),
 }
 
@@ -160,7 +160,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
             ds.push(Value::List { index: 0 });
         }
         0x2 => { // push object
-            ds.push(Value::Object);
+            ds.push(Value::Object { empty: true });
         }
         0x3 => { // pop & append
             let v = ds.pop().unwrap();
@@ -178,13 +178,37 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
         0x4 => { // pop pop & setitem
             let v = ds.pop().unwrap();
             let k = ds.pop().unwrap();
-            if let Value::Terminal(v) = v {
+
+            let print_lhs = || -> io::Result<()> {
                 print_path(&*ds, &mut output)?;
-                match k {
-                    Value::Terminal(Terminal::String(s)) => write!(&mut output, "{}", s)?,
-                    _ => panic!("object field must be a string, not {:?}", k),
+                if let Value::Terminal(Terminal::String(s)) = k {
+                    write!(&mut output, "{} = ", s)?;
+                } else {
+                    panic!("object field must be a string, not {:?}", k);
                 }
-                writeln!(&mut output, " = {}", v)?;
+                Ok(())
+            };
+            match v {
+                Value::Terminal(v) => {
+                    print_lhs()?;
+                    writeln!(&mut output, "{}", v)?;
+                }
+                Value::List { index: 0 } => {
+                    print_lhs()?;
+                    output.write_all(b"[]\n")?;
+                }
+                Value::Object { empty: true } => {
+                    print_lhs()?;
+                    output.write_all(b"{}\n")?;
+                }
+                Value::List { index: _ } | Value::Object { empty: false } => {
+                    // already printed fields for these; nothing to do here.
+                }
+            }
+            if let Some(Value::Object { ref mut empty }) = ds.last_mut() {
+                *empty = false;
+            } else {
+                panic!("can't set a field on non-object: {:?}", ds.last());
             }
         }
         0x5 => { // push null
@@ -302,7 +326,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
 fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
     for item in ds {
         match item {
-            Value::Object => output.write_all(b".")?,
+            Value::Object { .. } => output.write_all(b".")?,
             Value::List { index } => write!(output, "[{}]", index)?,
             Value::Terminal(Terminal::String(s)) => write!(output, "{}", s)?,
             Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
