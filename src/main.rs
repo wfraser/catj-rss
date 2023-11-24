@@ -178,15 +178,10 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
         }
         0x4 => { // pop pop & setitem
             let v = ds.pop().unwrap();
-            let k = ds.pop().unwrap();
 
-            let print_lhs = || -> io::Result<()> {
+            let mut print_lhs = || -> io::Result<()> {
                 print_path(&*ds, &mut output)?;
-                if let Value::Terminal(Terminal::String(s)) = k {
-                    write!(&mut output, "{s} = ")?;
-                } else {
-                    panic!("object field must be a string, not {:?}", k);
-                }
+                output.write_all(b" = ")?;
                 Ok(())
             };
             match v {
@@ -206,6 +201,10 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut Vec<u8>, es: &mut
                     // already printed fields for these; nothing to do here.
                 }
             }
+
+            // pop key, which we've now printed
+            ds.pop().unwrap();
+
             if let Some(Value::Object { ref mut empty }) = ds.last_mut() {
                 *empty = false;
             } else {
@@ -329,7 +328,13 @@ fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
         match item {
             Value::Object { .. } => output.write_all(b".")?,
             Value::List { index } => write!(output, "[{index}]")?,
-            Value::Terminal(Terminal::String(s)) => write!(output, "{s}")?,
+            Value::Terminal(Terminal::String(s)) => {
+                if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    write!(output, "{s}")?;
+                } else {
+                    write!(output, "{s:?}")?;
+                }
+            }
             Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
         }
     }
