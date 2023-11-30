@@ -6,7 +6,7 @@
 ///
 /// https://github.com/wfraser/catj-rss
 ///
-/// Copyright 2019-2021 William R. Fraser
+/// Copyright 2019-2023 William R. Fraser
 
 use std::char;
 use std::cmp::min;
@@ -328,11 +328,13 @@ fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
         match item {
             Value::Object { .. } => output.write_all(b".")?,
             Value::List { index } => write!(output, "[{index}]")?,
-            Value::Terminal(Terminal::String(s)) => {
+            Value::Terminal(term @ Terminal::String(s)) => {
                 if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    // Write it as a bare string
                     write!(output, "{s}")?;
                 } else {
-                    write!(output, "{s:?}")?;
+                    // Write it with quotes, escapes, etc. as if it were a value
+                    write!(output, "{term}")?;
                 }
             }
             Value::Terminal(other) => panic!("invalid item in a path: {:?}", other),
@@ -345,7 +347,7 @@ fn main() {
     if let Some(arg) = std::env::args().nth(1) {
         if arg == "--version" || arg == "-V" {
             eprintln!("catj-rss v{}", env!("CARGO_PKG_VERSION"));
-            eprintln!("Copyright 2019-2021 William R. Fraser");
+            eprintln!("Copyright 2019-2023 William R. Fraser");
             eprintln!("https://github.com/wfraser/catj-rss");
         } else {
             eprintln!("usage: {} [-V | --version] < some_file.json", std::env::args().next().unwrap());
