@@ -370,3 +370,50 @@ fn main() {
         exit(2);
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn run(input: &str) -> String {
+        let mut input = io::Cursor::new(input);
+        let mut out = io::Cursor::new(vec![]);
+        parse(&mut input, &mut out).unwrap();
+        String::from_utf8(out.into_inner()).expect("bad utf8").trim().to_owned()
+    }
+
+    #[test]
+    fn test_empty() {
+        assert_eq!("", run(""));
+        assert_eq!("", run("{}"));
+        assert_eq!("", run("[]"));
+        assert_eq!("", run("[{}]"));
+    }
+
+    #[test]
+    fn test_not_empty() {
+        assert_eq!(".foo = []", run(r#"{"foo": []}"#));
+    }
+
+    #[test]
+    fn test_simple() {
+        assert_eq!(".foo = \"bar\"", run(r#"{"foo": "bar"}"#));
+    }
+
+    #[test]
+    fn test_non_ident_keys() {
+        assert_eq!(".bare = \"a\"", run(r#"{"bare": "a"}"#));
+        assert_eq!(".\"quoted now\" = \"b\"", run(r#"{"quoted now": "b"}"#));
+    }
+
+    #[test]
+    fn test_utf8() {
+        assert_eq!(".\"⚙🖥\" = \"🦀\"", run(r#"{"⚙🖥": "🦀"}"#));
+    }
+
+    #[test]
+    fn test_escapes() {
+        assert_eq!(".smile = \"😊\"", run(r#"{"smile": "\ud83d\ude0a"}"#));
+        assert_eq!(".\"\\b_backspace\" = \"carriage\\r\\nreturn\"", run(r#"{"\b_backspace": "carriage\r\nreturn"}"#));
+    }
+}
