@@ -1,6 +1,9 @@
 # catj (Rust streaming parser edition&trade;)
 Displays JSON files in a flat format.
 
+This version doesn't read the whole file into memory for parsing, and has no dependencies other than
+the Rust standard library.
+
 ## Usage
 `catj` reads from standard input and writes to standard output (errors to standard error).
 
