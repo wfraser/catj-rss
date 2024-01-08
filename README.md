@@ -73,9 +73,9 @@ So feel free to use it on [truly huge JSON
 files](https://github.com/zemirco/sf-city-lots-json).
 
 ## Copyright and License
-Copyright 2019 William R. Fraser
+Copyright 2019-2024 William R. Fraser
 
-Licensed under the The MIT License (the "License");
+Licensed under The MIT License (the "License");
 you may not use this work except in compliance with the License.
 You may obtain a copy of the License in the LICENSE file, or at:
 

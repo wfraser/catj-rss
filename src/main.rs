@@ -329,7 +329,7 @@ fn print_path(ds: &[Value], output: &mut impl Write) -> io::Result<()> {
             Value::Object { .. } => output.write_all(b".")?,
             Value::List { index } => write!(output, "[{index}]")?,
             Value::Terminal(term @ Terminal::String(s)) => {
-                if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     // Write it as a bare string
                     write!(output, "{s}")?;
                 } else {
@@ -377,9 +377,9 @@ mod test {
 
     fn run(input: &str) -> String {
         let mut input = io::Cursor::new(input);
-        let mut out = io::Cursor::new(vec![]);
+        let mut out = vec![];
         parse(&mut input, &mut out).unwrap();
-        String::from_utf8(out.into_inner()).expect("bad utf8").trim().to_owned()
+        String::from_utf8(out).expect("bad utf8").trim().to_owned()
     }
 
     #[test]
@@ -393,6 +393,7 @@ mod test {
     #[test]
     fn test_not_empty() {
         assert_eq!(".foo = []", run(r#"{"foo": []}"#));
+        assert_eq!(".\"\" = []", run(r#"{"": []}"#));
     }
 
     #[test]
